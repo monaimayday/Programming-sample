@@ -1,0 +1,99 @@
+#data cleaning 
+
+library(dplyr)
+#Randomization dataset
+datrdm<-read.table("/users/mrosen/Projects/NDCTDataSets/NIMH_NDCT_DATA_SETS/NCT00590863/rdm01.txt", fill=TRUE,header = TRUE)
+arm <- datrdm[-c(1),]
+arm<-select(arm,4,42)%>% 
+  rename(SUBID=src_subject_id)
+arm[,1:2] <- lapply(arm[,1:2], function(x) as.numeric(as.character(x)))
+arm<-arrange(arm,SUBID) ##1=Escitalopram Plus Placebo; 2=Sustained-Release Bupropion Plus Escitalopram; 3=Extended-Release Venlafaxine Plus Mirtazapine
+
+#Demographic dataset
+##select variable GUID, subid,age,gender,ethnicity,race variables
+datdm<-read.table("/users/mrosen/Projects/NDCTDataSets/NIMH_NDCT_DATA_SETS/NCT00590863/demogr01.txt", fill=TRUE, na.strings=c("","NA"))
+dat1_1<-datdm[-c(1,2,1311,1312), ]##remove head and tail description
+dat1_1<-select(dat1_1,3:4,6:7,43:44) %>% 
+  rename(GUID=V3,SUBID=V4,AGE=V6,GENDER=V7,ETHNICITY=V43,RACE=V44)
+dat1_1<-dat1_1[!(is.na(dat1_1$ETHNICITY)) | !(is.na(dat1_1$RACE)),]
+dat1_1[,2:3]<- lapply(dat1_1[,2:3], function(x) as.numeric(as.character(x)))
+dat1_1<-arrange(dat1_1,SUBID)
+
+# Logistic Regression Model (Unadjusted)
+# Arm 1 vs 2
+fdat12<-filter(fdatm,arm!=3)
+unadjusted12 <- glm(rem ~ arm, data = fdat12, family = "binomial")
+summary(unadjusted12)
+
+# Bootstrap to get standard error of logistic coefficien
+set.seed(123)
+par_bootstrap = array(0, c(10000, length(coefficients(unadjusted12))))
+colnames(par_bootstrap) = names(coefficients(unadjusted12))
+for (k in 1:10000) {
+  idx_rd = sample(1:nrow(fdat12), size = nrow(fdat12), replace = TRUE)
+  tempdata = fdat12[idx_rd, ]
+  fit_temp = glm(rem ~ arm, data = tempdata, family = "binomial")
+  par_bootstrap[k, ] = coefficients(fit_temp)
+}
+bt_se12 = sd(par_bootstrap[, 2])
+bt_ci12 = quantile(par_bootstrap[, 2], probs = c(0.025, 0.975))
+
+# Calculate Standardized estimator
+# Only adjust employment
+fdat12<-filter(fdat,arm!=3)
+fdat121<-select(fdat12,arm,rem,wpai01)
+# Function to get standard estimator
+stand.est = function(Y, A, W){
+  # Creating the data frame
+  data.used = data.frame(W, A, Y)
+  # Fitting the logistic regression model
+  log.reg = glm(Y ~., data = data.used, family = "binomial")
+  # Creating dataset for calculating the predictions corresponding to
+  # A = 1 and A = 0
+  data.a.1 = data.used
+  data.a.1$A = 1
+  data.a.0 = data.used
+  data.a.0$A = 0
+  # Calculating the predictions
+  pred.1 = predict.glm(log.reg, newdata =
+                         data.a.1[, colnames(data.used) != "Y"]
+                       , type = "response")
+  pred.0 = predict.glm(log.reg, newdata =
+                         data.a.0[, colnames(data.used) != "Y"]
+                       , type = "response")
+  res.gcomp = mean(pred.1) - mean(pred.0)
+  return(res.gcomp)
+}
+stand.est(fdat121$rem,fdat121$arm,fdat121$wpai01)
+
+# Function to calculate the variance estimator
+set.seed(123)
+var.stand.est = function(Y, A, W, n.boot){
+  # Creating the data frame
+  data.used = data.frame(W, A, Y)
+  # Calculating the variance estimator
+  boot.gcomp = rep(NA, n.boot)
+  for(i in 1:n.boot){
+    # Finding the bootstrap sample
+    bs = sample(1:nrow(data.used), size = nrow(data.used), replace = TRUE)
+    # Fitting the bootstrapped logistic regression model
+    log.reg.bs = glm(Y ~., data = data.used[bs, ], family = "binomial")
+    data.a.1 = data.used[bs, ]
+    data.a.1$A = 1
+    data.a.0 = data.used[bs, ]
+    data.a.0$A = 0
+    # Calculating the predictions
+    p.1.bs = predict.glm(log.reg.bs, newdata =
+                           data.a.1[, colnames(data.used) != "Y"]
+                         , type = "response")
+    p.0.bs = predict.glm(log.reg.bs, newdata =
+                           data.a.0[, colnames(data.used) != "Y"]
+                         , type = "response")
+    # Calculating the bootstrap estimator
+    boot.gcomp[i] = mean(p.1.bs) - mean(p.0.bs)
+  }
+  # Returning the estimator and variance estimator
+  return(list(bootvar=var(boot.gcomp),bootse=sd(boot.gcomp),ci=quantile(boot.gcomp, probs = c(0.025, 0.975))))
+}
+fdat121<-select(fdat12,arm,rem,wpai01)%>%na.omit(fdat121)
+var.stand.est(fdat121$rem,fdat121$arm,fdat121$wpai01,10000)
