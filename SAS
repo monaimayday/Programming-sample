@@ -1,0 +1,94 @@
+**********************************************************;
+* Program name		:Macro for sample size computation for Simon two-Stage Phase 2 Clinical Trial Design
+*
+* Author		:Xue Jia
+*
+* Date created		:2018-01-20
+*
+*
+* Purpose		:To compute sample size for Simon two-Stage Phase 2 Clinical Trial Design.
+*
+* Inputs		:Parameters for the design
+*
+* Outputs		:Information related to sample size
+*
+* Program completed	: Yes
+*
+* Version		:V1
+* Updated by 		: (Name) ¨C (Date):
+* 					 (Modification and Reason)
+**********************************************************
+Programmed using SAS version 9.4
+**********************************************************;
+*Note
+1.About simon 2-stage design, please refer to https://linus.nci.nih.gov/techreport/Optimal2-StageDesigns.pdf
+2.The key parameters
+  &p0 : An unacceptable response rate.
+  &p1 : The target response rate.
+  &alpha : The probability of declaring the drug effective when the true response probability is p0.
+  &beta : The probability of declaring the drug as not effective when its true response probability is the target response rate p1.
+  &usern : User-specified maximum sample size, cannot exceed 120.
+3.The 'Optimal' design satisfies the error probability constraints and minimizes the expected sample size (EN) when the response
+probability is p0, while the 'Minimax' design minimize the maximum sample size (n) subject to the error probability constraints.;
+  
+
+
+%macro simon(p0=,p1=,alpha=,beta=,usern=);
+
+data stage1;
+do n1=2 to &usern-1;
+   do r1=0 to n1 while (r1<n1);
+      term1_p0 = cdf('BINOMIAL', r1, &p0, n1);
+      term1_p1 = cdf('BINOMIAL', r1, &p1, n1);
+      if term1_p1=<&beta then
+      output;
+      /*remove solution sets that do not meet the beta requirement*/
+   end;
+end;
+run;
+
+data stage12;
+set stage1;
+do n=n1+1 to &usern;
+   do r=r1+1 to n while (r1<r<n);
+      term2_p0=0;
+			/*initialize the summation terms for alpha & beta calculations */
+      term2_p1=0;
+      do x=r1+1 to min(r, n1);
+            dum0=pdf('BINOMIAL', x, &p0, n1)*cdf('BINOMIAL', r-x, &p0, n-n1);
+            dum1=pdf('BINOMIAL', x, &p1, n1)*cdf('BINOMIAL', r-x, &p1, n-n1);
+            term2_p0=term2_p0+dum0;
+            /* recursive formulae used for summation terms */
+            term2_p1=term2_p1+dum1;
+            alpha=1-(term1_p0+term2_p0);
+            beta=term1_p1+term2_p1;
+            n2=n-n1;
+            EN=n1+(1-term1_p0)*n2;
+       end;
+       if alpha=<&alpha and beta=<&beta then
+          output;
+   end;             
+end;
+run;
+
+/* specify output variables */
+data stage2;
+retain alpha beta r1 n1 n2 r n EN;
+keep alpha beta r1 n1 n2 r n EN;
+set stage12;
+run;
+
+proc sort data=stage2;
+     by EN;
+run;
+
+proc sql outobs=1;
+itle;
+select 'Optimal', * from stage2 where en=(select min(EN) from stage2);
+select 'Minimax', * from stage2 where n=(select min(n) from stage2);
+quit;
+
+%MEND simon;
+
+/*example*/
+%simon(p0=0.2,p1=0.4,alpha=0.05,beta=0.1,usern=60);
