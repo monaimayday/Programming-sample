@@ -1,3 +1,5 @@
+#This is a part of R code for my capstone project (writing sample 1), in which I included code to achieve data cleaning, regression model, R function and bootstrap.
+
 #data cleaning 
 
 library(dplyr)
