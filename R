@@ -19,13 +19,16 @@ dat1_1<-dat1_1[!(is.na(dat1_1$ETHNICITY)) | !(is.na(dat1_1$RACE)),]
 dat1_1[,2:3]<- lapply(dat1_1[,2:3], function(x) as.numeric(as.character(x)))
 dat1_1<-arrange(dat1_1,SUBID)
 
+
+
 # Logistic Regression Model (Unadjusted)
+# Regress remissiion rate (rem) with treatment arm without adjusting other covariates
 # Arm 1 vs 2
 fdat12<-filter(fdatm,arm!=3)
 unadjusted12 <- glm(rem ~ arm, data = fdat12, family = "binomial")
 summary(unadjusted12)
 
-# Bootstrap to get standard error of logistic coefficien
+# Bootstrap 10000 times to get standard error of logistic coefficient
 set.seed(123)
 par_bootstrap = array(0, c(10000, length(coefficients(unadjusted12))))
 colnames(par_bootstrap) = names(coefficients(unadjusted12))
@@ -38,11 +41,12 @@ for (k in 1:10000) {
 bt_se12 = sd(par_bootstrap[, 2])
 bt_ci12 = quantile(par_bootstrap[, 2], probs = c(0.025, 0.975))
 
-# Calculate Standardized estimator
-# Only adjust employment
-fdat12<-filter(fdat,arm!=3)
-fdat121<-select(fdat12,arm,rem,wpai01)
+
 # Function to get standard estimator
+#The standardized estimator of Moore and van der Laan estimates the average treatment effect
+defined as a contrast between the proportion of the target population who would have a successful
+outcome under treatment versus the control group. Please find my capstone paper for more details.
+
 stand.est = function(Y, A, W){
   # Creating the data frame
   data.used = data.frame(W, A, Y)
@@ -66,7 +70,7 @@ stand.est = function(Y, A, W){
 }
 stand.est(fdat121$rem,fdat121$arm,fdat121$wpai01)
 
-# Function to calculate the variance estimator
+# Function to calculate the variance estimator using bootstrap
 set.seed(123)
 var.stand.est = function(Y, A, W, n.boot){
   # Creating the data frame
